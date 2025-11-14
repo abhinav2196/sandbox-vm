@@ -1,0 +1,36 @@
+# Vagrant
+.vagrant/
+*.log
+
+# VirtualBox
+*.vbox
+*.vbox-prev
+
+# VMware
+*.vmx
+*.vmxf
+*.vmdk
+*.nvram
+*.vmsd
+*.vmsn
+*.vmss
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Sensitive data (never commit these)
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.gpg
+*.asc
+secrets/
+keys/
+backups/
+
