@@ -1,6 +1,15 @@
 # Security Sandbox Environment
 
-A completely isolated VM for handling sensitive security operations (private keys, certificates, encryption) with minimal attack surface.
+A completely isolated VM for handling sensitive security operations (private keys, certificates, wallet credentials, encryption) with minimal attack surface.
+
+---
+
+## Key Features
+
+- **🔐 Encrypted Transient Shell (enc-env)** - RAM-based encrypted environment with runtime-generated password that's never stored
+- **☁️ Google Cloud CLI** - Pre-installed with authentication prompt on VM start
+- **💳 Wallet Provisioning** - Browser extensions (MetaMask, Rabby, Phantom) with GCP Secret Manager integration
+- **🔒 Complete Isolation** - No shared folders, clipboard, or host access
 
 ---
 
@@ -10,6 +19,7 @@ A completely isolated VM for handling sensitive security operations (private key
 2. **Network Isolation** - Only essential outbound connections (DNS, HTTP, HTTPS). Everything else blocked
 3. **Dual User Model** - Non-privileged user for security work, admin user for system maintenance (configurable)
 4. **Ephemeral Tokens** - Use throw-away PAT tokens scoped to specific repositories only
+5. **Encrypted Shell** - Sensitive operations in transient encrypted environment
 
 ## Configuration
 
@@ -18,6 +28,7 @@ Edit `Vagrantfile` to customize:
 ```ruby
 SECURITY_USER_HAS_SUDO = false  # Set to true for sudo access
 ADMIN_USER_ENABLED = true       # Set to false to disable admin user
+ENC_ENV_SIZE_MB = 256           # Encrypted volume size (MB)
 VM_MEMORY = "2048"              # Adjust RAM (MB)
 VM_CPUS = 2                     # Adjust CPU cores
 ```

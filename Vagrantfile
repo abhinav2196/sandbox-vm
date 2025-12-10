@@ -7,6 +7,12 @@
 #
 # Designed for handling sensitive security tasks with complete isolation
 #
+# FEATURES:
+#   - Encrypted transient shell (enc-env) with runtime-generated passwords
+#   - gcloud CLI with authentication prompt on VM start
+#   - Browser wallet extension provisioning (MetaMask, etc.)
+#   - GCP Secret Manager integration for wallet credentials
+#
 # MULTI-ARCHITECTURE & MULTI-PROVIDER SUPPORT:
 # This Vagrantfile supports teams with mixed hardware:
 #   - Apple Silicon Mac (M1/M2/M3)  → QEMU, Parallels, or VMware
@@ -31,6 +37,9 @@ Vagrant.configure("2") do |config|
   # Security user configuration
   SECURITY_USER_HAS_SUDO = false  # Set to true to allow security user sudo access
   ADMIN_USER_ENABLED = true       # Set to false to disable admin user entirely
+  
+  # Encrypted environment configuration
+  ENC_ENV_SIZE_MB = 256           # Size of encrypted RAM-based volume
   
   # Resource allocation (adjust based on your host system)
   VM_MEMORY = "2048"  # MB
@@ -171,10 +180,44 @@ Vagrant.configure("2") do |config|
       openssh-client \
       ca-certificates \
       pass \
-      keychain
+      keychain \
+      jq \
+      cryptsetup
     
     # Install lightweight desktop environment (XFCE)
     apt-get install -y xfce4 xfce4-goodies lightdm xfce4-screensaver
+    
+    # ============================================================================
+    # GOOGLE CLOUD CLI INSTALLATION
+    # ============================================================================
+    
+    echo "Installing Google Cloud CLI..."
+    
+    # Add Google Cloud SDK repository
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
+      tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+    
+    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+      gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+    
+    apt-get update
+    apt-get install -y google-cloud-cli
+    
+    echo "✓ Google Cloud CLI installed"
+    
+    # ============================================================================
+    # BROWSER INSTALLATION (for wallet extensions)
+    # ============================================================================
+    
+    echo "Installing browsers for wallet extensions..."
+    
+    # Install Firefox ESR (stable, extension-friendly)
+    apt-get install -y firefox-esr
+    
+    # Install Chromium (for Chrome extension compatibility)
+    apt-get install -y chromium-browser || apt-get install -y chromium
+    
+    echo "✓ Browsers installed (Firefox ESR, Chromium)"
     
     # Configure GPG
     mkdir -p /etc/gnupg
@@ -263,6 +306,388 @@ EOF
     echo "✓ Firewall configured (DNS, HTTP, HTTPS only)"
     
     # ============================================================================
+    # ENCRYPTED TRANSIENT ENVIRONMENT (enc-env)
+    # ============================================================================
+    
+    echo "Setting up encrypted transient environment..."
+    
+    # Create the enc-env script for encrypted shell sessions
+    cat > /usr/local/bin/enc-env << 'ENCENV'
+#!/bin/bash
+# enc-env: Encrypted Transient Shell Environment
+# Password is generated at runtime and never stored
+
+set -e
+
+ENC_SIZE_MB=${ENC_SIZE_MB:-256}
+ENC_MOUNT="/mnt/enc-env"
+ENC_DEVICE="/dev/mapper/enc-env"
+RAMDISK="/dev/shm/enc-env-backing"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+print_banner() {
+    echo -e "${CYAN}"
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║           ENCRYPTED TRANSIENT ENVIRONMENT                 ║"
+    echo "║                                                           ║"
+    echo "║  • Password generated at runtime (never stored)          ║"
+    echo "║  • All data encrypted with AES-256-XTS                   ║"
+    echo "║  • Environment destroyed on exit                         ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
+
+cleanup() {
+    echo -e "\n${YELLOW}Cleaning up encrypted environment...${NC}"
+    
+    # Kill any processes using the mount
+    fuser -km "$ENC_MOUNT" 2>/dev/null || true
+    
+    # Unmount
+    umount "$ENC_MOUNT" 2>/dev/null || true
+    
+    # Close encrypted device
+    cryptsetup close enc-env 2>/dev/null || true
+    
+    # Destroy the RAM-backed file (overwrite with zeros first)
+    if [ -f "$RAMDISK" ]; then
+        dd if=/dev/zero of="$RAMDISK" bs=1M count=$ENC_SIZE_MB 2>/dev/null || true
+        rm -f "$RAMDISK"
+    fi
+    
+    # Clear environment variables
+    unset ENC_PASSWORD
+    unset ENC_WORK
+    
+    echo -e "${GREEN}✓ Encrypted environment destroyed. No traces remain.${NC}"
+}
+
+start_enc_env() {
+    print_banner
+    
+    # Check for root (needed for cryptsetup)
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${YELLOW}Encrypted environment requires elevated privileges.${NC}"
+        echo "Re-running with sudo..."
+        exec sudo -E "$0" "$@"
+    fi
+    
+    # Generate a random password (32 bytes, base64 encoded)
+    ENC_PASSWORD=$(head -c 32 /dev/urandom | base64)
+    
+    echo -e "${GREEN}✓ Generated transient encryption password${NC}"
+    echo -e "${YELLOW}  (Password exists only in memory, will be destroyed on exit)${NC}"
+    echo ""
+    
+    # Create RAM-backed file for the encrypted volume
+    echo "Creating ${ENC_SIZE_MB}MB encrypted RAM volume..."
+    dd if=/dev/zero of="$RAMDISK" bs=1M count=$ENC_SIZE_MB 2>/dev/null
+    chmod 600 "$RAMDISK"
+    
+    # Set up loop device
+    LOOP_DEV=$(losetup -f --show "$RAMDISK")
+    
+    # Create encrypted volume with the generated password
+    echo -n "$ENC_PASSWORD" | cryptsetup luksFormat --batch-mode "$LOOP_DEV" -
+    echo -n "$ENC_PASSWORD" | cryptsetup open "$LOOP_DEV" enc-env -
+    
+    # Create filesystem
+    mkfs.ext4 -q "$ENC_DEVICE"
+    
+    # Mount
+    mkdir -p "$ENC_MOUNT"
+    mount "$ENC_DEVICE" "$ENC_MOUNT"
+    
+    # Create work directories
+    mkdir -p "$ENC_MOUNT/keys"
+    mkdir -p "$ENC_MOUNT/wallets"
+    mkdir -p "$ENC_MOUNT/secrets"
+    mkdir -p "$ENC_MOUNT/work"
+    
+    # Set permissions for the calling user
+    CALLING_USER=${SUDO_USER:-$USER}
+    chown -R "$CALLING_USER:$CALLING_USER" "$ENC_MOUNT"
+    chmod 700 "$ENC_MOUNT"
+    
+    echo -e "${GREEN}✓ Encrypted environment ready at: $ENC_MOUNT${NC}"
+    echo ""
+    echo -e "${CYAN}Directory structure:${NC}"
+    echo "  $ENC_MOUNT/keys/     - Private keys"
+    echo "  $ENC_MOUNT/wallets/  - Wallet data"
+    echo "  $ENC_MOUNT/secrets/  - GCP secrets cache"
+    echo "  $ENC_MOUNT/work/     - Working directory"
+    echo ""
+    echo -e "${YELLOW}Starting encrypted shell. Type 'exit' to destroy environment.${NC}"
+    echo ""
+    
+    # Set up trap for cleanup
+    trap cleanup EXIT INT TERM
+    
+    # Export environment for the shell
+    export ENC_WORK="$ENC_MOUNT/work"
+    export ENC_KEYS="$ENC_MOUNT/keys"
+    export ENC_WALLETS="$ENC_MOUNT/wallets"
+    export ENC_SECRETS="$ENC_MOUNT/secrets"
+    export PS1="\[\033[0;31m\][enc-env]\[\033[0m\] \u@\h:\w\$ "
+    
+    # Start shell as the original user
+    cd "$ENC_MOUNT/work"
+    su - "$CALLING_USER" -c "cd $ENC_MOUNT/work && ENC_WORK=$ENC_WORK ENC_KEYS=$ENC_KEYS ENC_WALLETS=$ENC_WALLETS ENC_SECRETS=$ENC_SECRETS PS1='[enc-env] \u@\h:\w\$ ' bash"
+}
+
+case "${1:-start}" in
+    start)
+        start_enc_env
+        ;;
+    status)
+        if mountpoint -q "$ENC_MOUNT" 2>/dev/null; then
+            echo -e "${GREEN}Encrypted environment is ACTIVE at $ENC_MOUNT${NC}"
+            df -h "$ENC_MOUNT"
+        else
+            echo -e "${YELLOW}Encrypted environment is NOT active${NC}"
+        fi
+        ;;
+    *)
+        echo "Usage: enc-env [start|status]"
+        exit 1
+        ;;
+esac
+ENCENV
+    
+    chmod +x /usr/local/bin/enc-env
+    echo "✓ Encrypted transient environment (enc-env) configured"
+    
+    # ============================================================================
+    # PROVISION.SH - Wallet Extension Provisioning Script
+    # ============================================================================
+    
+    cat > /usr/local/bin/provision.sh << 'PROVISION'
+#!/bin/bash
+# provision.sh - Provision browser wallet extensions and retrieve secrets
+#
+# Usage: provision.sh <wallet_type> <gcp_secret_name>
+# Example: provision.sh metamask projects/myproject/secrets/my-wallet/versions/latest
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+WALLET_TYPE="${1:-}"
+GCP_SECRET="${2:-}"
+
+print_usage() {
+    echo -e "${CYAN}Wallet Extension Provisioning${NC}"
+    echo ""
+    echo "Usage: provision.sh <wallet_type> [gcp_secret_name]"
+    echo ""
+    echo "Wallet Types:"
+    echo "  metamask     - MetaMask browser extension"
+    echo "  rabby        - Rabby Wallet extension"
+    echo "  phantom      - Phantom Wallet (Solana)"
+    echo ""
+    echo "Examples:"
+    echo "  provision.sh metamask"
+    echo "  provision.sh metamask projects/myproject/secrets/wallet-seed/versions/latest"
+    echo ""
+    echo "GCP Secret Format (JSON):"
+    echo '  {"seed_phrase": "word1 word2 ...", "password": "optional_pw"}'
+}
+
+check_gcloud_auth() {
+    if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
+        echo -e "${YELLOW}Not authenticated with gcloud. Starting authentication...${NC}"
+        gcloud auth login --no-launch-browser
+    fi
+}
+
+install_metamask_firefox() {
+    echo -e "${CYAN}Installing MetaMask for Firefox...${NC}"
+    
+    METAMASK_URL="https://addons.mozilla.org/firefox/downloads/latest/ether-metamask/latest.xpi"
+    EXTENSION_DIR="$HOME/.mozilla/firefox"
+    
+    # Find or create Firefox profile
+    PROFILE_DIR=$(find "$EXTENSION_DIR" -maxdepth 1 -type d -name "*.default*" 2>/dev/null | head -1)
+    
+    if [ -z "$PROFILE_DIR" ]; then
+        echo "Creating Firefox profile..."
+        firefox-esr -CreateProfile "security" 2>/dev/null || firefox -CreateProfile "security" 2>/dev/null || true
+        sleep 2
+        PROFILE_DIR=$(find "$EXTENSION_DIR" -maxdepth 1 -type d -name "*.security*" 2>/dev/null | head -1)
+    fi
+    
+    if [ -n "$PROFILE_DIR" ]; then
+        mkdir -p "$PROFILE_DIR/extensions"
+        curl -sL "$METAMASK_URL" -o "/tmp/metamask.xpi"
+        
+        # Extract extension ID and install
+        EXTENSION_ID="webextension@metamask.io"
+        cp "/tmp/metamask.xpi" "$PROFILE_DIR/extensions/${EXTENSION_ID}.xpi"
+        rm -f "/tmp/metamask.xpi"
+        
+        echo -e "${GREEN}✓ MetaMask installed for Firefox${NC}"
+    else
+        echo -e "${YELLOW}Could not find Firefox profile. Install manually from: ${NC}"
+        echo "  https://addons.mozilla.org/firefox/addon/ether-metamask/"
+    fi
+}
+
+install_metamask_chromium() {
+    echo -e "${CYAN}Installing MetaMask for Chromium...${NC}"
+    
+    EXTENSION_ID="nkbihfbeogaeaoehlefnkodbefgpgknn"
+    CHROMIUM_POLICIES="/etc/chromium/policies/managed"
+    
+    # Create policy directory
+    sudo mkdir -p "$CHROMIUM_POLICIES"
+    
+    # Create policy to install MetaMask
+    sudo tee "$CHROMIUM_POLICIES/metamask.json" > /dev/null << POLICY
+{
+    "ExtensionInstallForcelist": [
+        "${EXTENSION_ID};https://clients2.google.com/service/update2/crx"
+    ]
+}
+POLICY
+    
+    echo -e "${GREEN}✓ MetaMask configured for Chromium (will install on next launch)${NC}"
+}
+
+install_rabby_chromium() {
+    echo -e "${CYAN}Installing Rabby Wallet for Chromium...${NC}"
+    
+    EXTENSION_ID="acmacodkjbdgmoleebolmdjonilkdbch"
+    CHROMIUM_POLICIES="/etc/chromium/policies/managed"
+    
+    sudo mkdir -p "$CHROMIUM_POLICIES"
+    
+    sudo tee "$CHROMIUM_POLICIES/rabby.json" > /dev/null << POLICY
+{
+    "ExtensionInstallForcelist": [
+        "${EXTENSION_ID};https://clients2.google.com/service/update2/crx"
+    ]
+}
+POLICY
+    
+    echo -e "${GREEN}✓ Rabby configured for Chromium${NC}"
+}
+
+install_phantom_chromium() {
+    echo -e "${CYAN}Installing Phantom Wallet for Chromium...${NC}"
+    
+    EXTENSION_ID="bfnaelmomeimhlpmgjnjophhpkkoljpa"
+    CHROMIUM_POLICIES="/etc/chromium/policies/managed"
+    
+    sudo mkdir -p "$CHROMIUM_POLICIES"
+    
+    sudo tee "$CHROMIUM_POLICIES/phantom.json" > /dev/null << POLICY
+{
+    "ExtensionInstallForcelist": [
+        "${EXTENSION_ID};https://clients2.google.com/service/update2/crx"
+    ]
+}
+POLICY
+    
+    echo -e "${GREEN}✓ Phantom configured for Chromium${NC}"
+}
+
+retrieve_gcp_secret() {
+    local secret_path="$1"
+    
+    echo -e "${CYAN}Retrieving secret from GCP...${NC}"
+    
+    check_gcloud_auth
+    
+    # Retrieve the secret
+    SECRET_DATA=$(gcloud secrets versions access "$secret_path" 2>/dev/null)
+    
+    if [ -z "$SECRET_DATA" ]; then
+        echo -e "${RED}Failed to retrieve secret: $secret_path${NC}"
+        return 1
+    fi
+    
+    # Parse JSON secret
+    SEED_PHRASE=$(echo "$SECRET_DATA" | jq -r '.seed_phrase // empty')
+    PASSWORD=$(echo "$SECRET_DATA" | jq -r '.password // empty')
+    
+    if [ -n "$SEED_PHRASE" ]; then
+        echo -e "${GREEN}✓ Secret retrieved successfully${NC}"
+        
+        # Store in encrypted environment if available
+        if [ -n "$ENC_SECRETS" ] && [ -d "$ENC_SECRETS" ]; then
+            echo "$SECRET_DATA" > "$ENC_SECRETS/wallet_secret.json"
+            chmod 600 "$ENC_SECRETS/wallet_secret.json"
+            echo -e "${GREEN}✓ Secret stored in encrypted environment: \$ENC_SECRETS/wallet_secret.json${NC}"
+        else
+            echo -e "${YELLOW}⚠ Encrypted environment not active. Run 'enc-env' first for secure storage.${NC}"
+            echo ""
+            echo -e "${YELLOW}Seed phrase retrieved (DISPLAY ONCE - NOT STORED):${NC}"
+            echo -e "${RED}$SEED_PHRASE${NC}"
+            echo ""
+            if [ -n "$PASSWORD" ]; then
+                echo -e "${YELLOW}Password: ${RED}$PASSWORD${NC}"
+            fi
+        fi
+    else
+        echo -e "${YELLOW}Secret retrieved but no seed_phrase found. Raw data:${NC}"
+        echo "$SECRET_DATA"
+    fi
+}
+
+# Main logic
+case "$WALLET_TYPE" in
+    metamask)
+        install_metamask_firefox
+        install_metamask_chromium
+        if [ -n "$GCP_SECRET" ]; then
+            retrieve_gcp_secret "$GCP_SECRET"
+        fi
+        ;;
+    rabby)
+        install_rabby_chromium
+        if [ -n "$GCP_SECRET" ]; then
+            retrieve_gcp_secret "$GCP_SECRET"
+        fi
+        ;;
+    phantom)
+        install_phantom_chromium
+        if [ -n "$GCP_SECRET" ]; then
+            retrieve_gcp_secret "$GCP_SECRET"
+        fi
+        ;;
+    "")
+        print_usage
+        exit 0
+        ;;
+    *)
+        echo -e "${RED}Unknown wallet type: $WALLET_TYPE${NC}"
+        print_usage
+        exit 1
+        ;;
+esac
+
+echo ""
+echo -e "${GREEN}Provisioning complete!${NC}"
+echo ""
+echo "Next steps:"
+echo "  1. Launch browser (firefox-esr or chromium-browser)"
+echo "  2. Complete wallet setup using retrieved credentials"
+echo "  3. For secure operations, use 'enc-env' first"
+PROVISION
+    
+    chmod +x /usr/local/bin/provision.sh
+    echo "✓ Wallet provisioning script installed"
+    
+    # ============================================================================
     # SECURITY HARDENING
     # ============================================================================
     
@@ -316,6 +741,8 @@ check_sandbox() {
     echo "Hostname: $(hostname)"
     echo "IP:       $(hostname -I | awk '{print $1}')"
     echo "Sudo:     $(groups | grep -q sudo && echo 'YES' || echo 'NO')"
+    echo "gcloud:   $(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null || echo 'Not authenticated')"
+    echo "enc-env:  $(mountpoint -q /mnt/enc-env 2>/dev/null && echo 'ACTIVE' || echo 'Not active')"
     echo "Date:     $(date)"
     echo "=========================================="
 }
@@ -325,7 +752,9 @@ secure_cleanup() {
     history -c
     rm -f ~/.bash_history
     rm -rf ~/.cache/* 2>/dev/null
-    echo "✓ Cleanup complete"
+    # Revoke gcloud credentials
+    gcloud auth revoke --all 2>/dev/null || true
+    echo "✓ Cleanup complete (including gcloud credentials)"
     echo "Remember to backup important files to ~/backups/ before destroying VM"
 }
 
@@ -333,9 +762,48 @@ secure_cleanup() {
 if [ -f ~/SECURITY_CHECKLIST.txt ]; then
     echo ""
     echo "🔒 Security Sandbox Loaded"
-    echo "Run 'check_sandbox' to verify environment"
-    echo "Run 'secure_cleanup' before destroying VM"
     echo ""
+    echo "Available commands:"
+    echo "  check_sandbox    - Verify environment status"
+    echo "  secure_cleanup   - Clean up before destroying VM"
+    echo "  enc-env          - Start encrypted transient shell"
+    echo "  provision.sh     - Provision wallet extensions"
+    echo ""
+fi
+
+# ============================================================================
+# GCLOUD AUTHENTICATION CHECK ON LOGIN
+# ============================================================================
+
+_check_gcloud_auth() {
+    # Only prompt in interactive shells
+    [[ $- != *i* ]] && return
+    
+    # Check if gcloud is authenticated
+    local active_account=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null)
+    
+    if [ -z "$active_account" ]; then
+        echo ""
+        echo -e "\033[1;33m⚠ Google Cloud CLI is not authenticated\033[0m"
+        echo ""
+        read -p "Would you like to authenticate now? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            echo ""
+            echo "Starting gcloud authentication..."
+            echo "(Follow the URL and enter the authorization code)"
+            echo ""
+            gcloud auth login --no-launch-browser
+        fi
+    else
+        echo -e "\033[0;32m✓ gcloud authenticated as: $active_account\033[0m"
+    fi
+}
+
+# Run authentication check on first login
+if [ -z "$GCLOUD_AUTH_CHECKED" ]; then
+    export GCLOUD_AUTH_CHECKED=1
+    _check_gcloud_auth
 fi
 EOF
     
@@ -354,11 +822,60 @@ SECURITY PRINCIPLES:
 2. Network Isolation - Only DNS, HTTP, HTTPS outbound
 3. Dual Users - security (no sudo) + admin (with sudo)
 4. Ephemeral Tokens - Use throw-away PAT tokens only
+5. Encrypted Shell - Use enc-env for sensitive operations
 
 BEFORE HANDLING SENSITIVE DATA:
 □ Verify environment: run 'check_sandbox'
 □ Confirm you're logged in as 'security' user
 □ Changed default passwords
+□ Authenticate with gcloud if using GCP secrets
+
+========================================
+ENCRYPTED TRANSIENT ENVIRONMENT (enc-env)
+========================================
+
+Start encrypted shell:
+  enc-env
+
+Features:
+• Password generated at runtime (NEVER stored)
+• AES-256-XTS encryption on RAM-backed volume
+• All data destroyed on exit
+• Directories: $ENC_KEYS, $ENC_WALLETS, $ENC_SECRETS, $ENC_WORK
+
+========================================
+WALLET PROVISIONING
+========================================
+
+Install wallet extension:
+  provision.sh metamask
+  provision.sh rabby
+  provision.sh phantom
+
+With GCP secret:
+  provision.sh metamask projects/PROJECT/secrets/NAME/versions/latest
+
+Secret JSON format:
+  {"seed_phrase": "word1 word2 ...", "password": "optional"}
+
+Recommended workflow:
+  1. enc-env                    # Start encrypted shell
+  2. provision.sh metamask <secret>  # Retrieve credentials
+  3. chromium-browser           # Import wallet
+  4. exit                       # Destroy all traces
+
+========================================
+GOOGLE CLOUD CLI
+========================================
+
+Authenticate:
+  gcloud auth login --no-launch-browser
+
+Check status:
+  gcloud auth list
+
+Revoke (done automatically by secure_cleanup):
+  gcloud auth revoke --all
 
 WHEN USING GITHUB:
 □ Create PAT with minimal scope (specific repo only)
@@ -380,6 +897,9 @@ INSTALLED TOOLS:
 - git, gpg2, pass, keychain
 - vim, nano, curl, wget
 - openssh-client
+- gcloud CLI
+- Firefox ESR, Chromium (for wallet extensions)
+- enc-env, provision.sh
 
 NETWORK MONITORING:
 Switch to admin user to view firewall logs:
@@ -412,14 +932,15 @@ EOF
   # ============================================================================
   
   config.vm.post_up_message = <<-MESSAGE
-    ========================================
+    ═══════════════════════════════════════════════════════════
     🔒 SECURITY SANDBOX READY
-    ========================================
+    ═══════════════════════════════════════════════════════════
     
     Configuration:
     - Security user sudo: #{SECURITY_USER_HAS_SUDO}
     - Admin user enabled: #{ADMIN_USER_ENABLED}
     - Resources: #{VM_MEMORY}MB RAM, #{VM_CPUS} CPUs
+    - Encrypted volume: #{ENC_ENV_SIZE_MB}MB
     
     Login:
     - security / SecurePass123! (auto-login)
@@ -427,11 +948,31 @@ EOF
     
     ⚠️  CHANGE PASSWORDS IMMEDIATELY!
     
+    NEW FEATURES:
+    ─────────────────────────────────────────────────────────────
+    🔐 Encrypted Shell:     enc-env
+       Transient encrypted environment - password never stored
+    
+    ☁️  Google Cloud CLI:    gcloud auth login
+       Authentication prompted on first login
+    
+    💳 Wallet Extensions:   provision.sh <wallet> [gcp_secret]
+       Examples:
+       - provision.sh metamask
+       - provision.sh metamask projects/proj/secrets/wallet/versions/latest
+    ─────────────────────────────────────────────────────────────
+    
+    Recommended Workflow:
+    1. enc-env                          # Start encrypted shell
+    2. provision.sh metamask <secret>   # Get wallet credentials
+    3. chromium-browser                 # Set up wallet
+    4. exit                             # Destroy all traces
+    
     Commands:
     - vagrant halt    (stop VM)
     - vagrant destroy (delete VM)
     
     Read ~/SECURITY_CHECKLIST.txt in the VM
-    ========================================
+    ═══════════════════════════════════════════════════════════
   MESSAGE
 end
