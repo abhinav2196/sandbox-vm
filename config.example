@@ -1,0 +1,11 @@
+# Secure Signing VM Configuration
+# Copy to config.yaml and edit
+
+network_enabled: true
+
+secrets:
+  - label: wallet-seed
+    project: my-gcp-project
+  - label: signing-key
+    project: my-gcp-project
+
