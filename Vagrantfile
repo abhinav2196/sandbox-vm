@@ -9,18 +9,28 @@ Vagrant.configure("2") do |config|
   NETWORK_ENABLED = cfg.fetch('network_enabled', true)
   VM_MEMORY = "2048"
   VM_CPUS = 2
-
-  # Platform detection
-  is_arm = `uname -m`.strip == 'arm64'
-  provider = ENV['VAGRANT_DEFAULT_PROVIDER'] || 'virtualbox'
   
-  # Box selection
-  config.vm.box = (provider == 'qemu' && is_arm) ? "perk/ubuntu-2204-arm64" : "ubuntu/jammy64"
+  # Platform detection
+  is_arm = RUBY_PLATFORM.include?('arm64') || `uname -m`.strip == 'arm64'
+  provider = is_arm ? 'qemu' : 'virtualbox'
+  ssh_port = (ENV['VAGRANT_SSH_PORT'] && !ENV['VAGRANT_SSH_PORT'].empty?) ? ENV['VAGRANT_SSH_PORT'].to_i : 50222
+  
+  # Box selection: use pre-built if available (via env var), else base box
+  use_prebuilt = ENV['USE_PREBUILT'] == '1'
+  
+  if use_prebuilt
+    config.vm.box = "signing-vm-base"
+  elsif provider == 'qemu'
+    config.vm.box = "perk/ubuntu-2204-arm64"
+  else
+    config.vm.box = "ubuntu/jammy64"
+  end
+  
   config.vm.hostname = "signing-vm"
   
-  # Disable shared folders (security)
+  # Synced folders
   config.vm.synced_folder ".", "/vagrant", disabled: true
-  config.vm.synced_folder ".", "/vagrant_config", disabled: false, type: "rsync", 
+  config.vm.synced_folder ".", "/vagrant_config", type: "rsync",
     rsync__include: ["config.yaml", "scripts/"]
   
   # Provider configs
@@ -30,49 +40,36 @@ Vagrant.configure("2") do |config|
     vb.gui = true
     vb.name = "signing-vm"
     vb.customize ["modifyvm", :id, "--clipboard", "disabled"]
-    vb.customize ["modifyvm", :id, "--draganddrop", "disabled"]
   end
 
   config.vm.provider "qemu" do |qe|
     qe.memory = VM_MEMORY
     qe.cpus = VM_CPUS
     qe.arch = "aarch64" if is_arm
+    # Avoid common 50022 collisions. Override with: VAGRANT_SSH_PORT=XXXXX
+    qe.ssh_port = ssh_port
   end
 
-  config.vm.provider "vmware_desktop" do |vm|
-    vm.memory = VM_MEMORY
-    vm.cpus = VM_CPUS
-    vm.gui = true
+  # Provisioning (skipped if using pre-built box)
+  unless use_prebuilt
+    config.vm.provision "shell", path: "scripts/provision.sh"
+    network_action = NETWORK_ENABLED ? "enable" : "disable"
+    config.vm.provision "shell", inline: "bash /vagrant_config/scripts/network.sh #{network_action}"
   end
-
-  config.vm.provider "parallels" do |prl|
-    prl.memory = VM_MEMORY.to_i
-    prl.cpus = VM_CPUS
-    prl.customize ["set", :id, "--shared-clipboard", "off"]
-  end
-
-  # Provision: base system
-  config.vm.provision "shell", path: "scripts/provision.sh"
   
-  # Provision: network
-  network_action = NETWORK_ENABLED ? "enable" : "disable"
-  config.vm.provision "shell", inline: "bash /vagrant_config/scripts/network.sh #{network_action}"
-  
-  # Post-up message
   config.vm.post_up_message = <<~MSG
     ══════════════════════════════════════════
     Signing VM Ready
     ══════════════════════════════════════════
     
-    Login: security / changeme (change this!)
-    Network: #{NETWORK_ENABLED ? 'Enabled (DNS/HTTP/HTTPS)' : 'Disabled'}
+    Login: security / changeme
+    Network: #{NETWORK_ENABLED ? 'Enabled' : 'Disabled'}
+    SSH Port: #{ssh_port} (host) → 22 (guest)
     
-    To fetch secrets:
-      sudo /vagrant_config/scripts/secrets.sh
-    
-    Commands:
-      vagrant halt     - Stop VM
-      vagrant destroy  - Delete VM + all secrets
+    Fetch secrets:  sudo /vagrant_config/scripts/secrets.sh
+    SSH:            vagrant ssh
+    Stop:           vagrant halt
+    Destroy:        vagrant destroy
     ══════════════════════════════════════════
   MSG
 end

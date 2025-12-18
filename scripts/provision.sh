@@ -10,7 +10,8 @@ apt-get install -y -qq \
     git gnupg2 curl wget vim jq \
     cryptsetup pass openssh-client \
     xfce4 xfce4-goodies lightdm \
-    firefox-esr chromium-browser 2>/dev/null || apt-get install -y -qq chromium
+    firefox-esr 2>/dev/null || apt-get install -y -qq firefox
+apt-get install -y -qq chromium-browser 2>/dev/null || true
 
 echo "==> Installing gcloud CLI"
 if ! command -v gcloud &>/dev/null; then

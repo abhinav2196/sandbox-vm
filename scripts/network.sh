@@ -10,11 +10,13 @@ setup_firewall() {
     ufw --force reset
     ufw default deny incoming
     ufw default deny outgoing
+    ufw allow in 22/tcp    # SSH (for Vagrant)
+    ufw allow out 22/tcp   # SSH
     ufw allow out 53/udp   # DNS
     ufw allow out 80/tcp   # HTTP
     ufw allow out 443/tcp  # HTTPS
     ufw --force enable
-    echo "==> Firewall: DNS/HTTP/HTTPS only"
+    echo "==> Firewall: SSH/DNS/HTTP/HTTPS"
 }
 
 disable_network() {
@@ -22,6 +24,9 @@ disable_network() {
     ufw --force reset
     ufw default deny incoming
     ufw default deny outgoing
+    # Still allow SSH so Vagrant access works even in offline mode
+    ufw allow in 22/tcp
+    ufw allow out 22/tcp
     ufw --force enable
     echo "==> Network disabled"
 }

@@ -5,27 +5,38 @@ Isolated VM for blockchain signing with GCP secrets injection.
 ## Quick Start
 
 ```bash
-# 1. Install (one-time)
+# 1. Setup
 ./setup.sh
+cp config.example config.yaml  # edit with your GCP project
 
-# 2. Configure
-cp config.example config.yaml
-# Edit: add your GCP project + secret labels
-
-# 3. Run
+# 2. First run (slow - builds image)
 vagrant up
 
-# 4. Inside VM - fetch secrets
-sudo /vagrant_config/scripts/secrets.sh
-# Enter encryption password (never stored)
-# Authenticate with GCP
-# Secrets available at /mnt/secrets/
+# 3. Package for fast deploys
+./build-box.sh
+
+# 4. Fast deploys (seconds)
+./deploy.sh
+```
+
+## Fast Deploy Workflow
+
+```
+Build once:     vagrant up → ./build-box.sh → signing-vm.box (5-10 min)
+Deploy fast:    ./deploy.sh → VM ready (10-20 sec)
+```
+
+## Inside VM
+
+```bash
+vagrant ssh
+sudo /vagrant_config/scripts/secrets.sh  # fetch GCP secrets
 ```
 
 ## Config
 
 ```yaml
-network_enabled: true  # false = fully offline
+network_enabled: true  # false = offline mode
 
 secrets:
   - label: wallet-seed
@@ -36,16 +47,10 @@ secrets:
 
 | Command | Action |
 |---------|--------|
-| `vagrant up` | Start VM |
-| `vagrant halt` | Stop VM |
-| `vagrant destroy` | Delete VM + secrets |
-| `vagrant ssh` | SSH access |
+| `./deploy.sh` | Fast start from pre-built box |
+| `./cleanup.sh vm` | Destroy VM (keep box) |
+| `./cleanup.sh box` | Remove pre-built box |
+| `./cleanup.sh all` | Destroy VM + remove box |
+| `vagrant halt` | Stop VM (keep state) |
 
-## Security
-
-- No host clipboard/folders access
-- Network: DNS/HTTP/HTTPS only (or disabled)
-- Secrets in encrypted RAM volume
-- Password prompted at runtime, never stored
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for design details.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for design.

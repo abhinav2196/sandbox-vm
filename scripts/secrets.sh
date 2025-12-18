@@ -1,9 +1,22 @@
 #!/bin/bash
 # Fetch GCP secrets and store in encrypted volume
-# Usage: secrets.sh <config_file>
+# Usage:
+#   secrets.sh                          # fetch using /vagrant_config/config.yaml
+#   secrets.sh /path/to/config.yaml     # fetch using provided config
+#   secrets.sh fetch [/path/to/config]  # explicit fetch
+#   secrets.sh cleanup                  # cleanup mount + mapper (best-effort)
 set -e
 
-CONFIG="${1:-/vagrant_config/config.yaml}"
+DEFAULT_CONFIG="/vagrant_config/config.yaml"
+CMD="${1:-fetch}"
+CONFIG="${2:-$DEFAULT_CONFIG}"
+
+# Back-compat: if first arg is a file path, treat it as CONFIG and default to fetch
+if [[ -f "${1:-}" ]]; then
+  CMD="fetch"
+  CONFIG="$1"
+fi
+
 MOUNT="/mnt/secrets"
 SIZE_MB=128
 
@@ -95,20 +108,25 @@ cleanup() {
 }
 
 # Main
-case "${1:-fetch}" in
-    fetch)
-        create_encrypted_volume
-        fetch_secrets
-        echo -e "\n${GREEN}Secrets ready at $MOUNT${NC}"
-        echo "Type 'exit' or Ctrl+D to destroy secrets"
-        trap cleanup EXIT
-        su - security -c "cd $MOUNT && bash"
-        ;;
-    cleanup)
-        cleanup
-        ;;
-    *)
-        echo "Usage: secrets.sh [fetch|cleanup]"
-        ;;
+case "$CMD" in
+  fetch)
+    create_encrypted_volume
+    fetch_secrets
+    echo -e "\n${GREEN}Secrets ready at $MOUNT${NC}"
+    echo "Type 'exit' or Ctrl+D to destroy secrets"
+    trap cleanup EXIT
+    su - security -c "cd $MOUNT && bash"
+    ;;
+  cleanup)
+    cleanup
+    ;;
+  *)
+    echo "Usage:"
+    echo "  secrets.sh"
+    echo "  secrets.sh /path/to/config.yaml"
+    echo "  secrets.sh fetch [/path/to/config.yaml]"
+    echo "  secrets.sh cleanup"
+    exit 1
+    ;;
 esac
 

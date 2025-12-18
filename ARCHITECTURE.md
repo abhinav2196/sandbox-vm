@@ -67,8 +67,11 @@ secrets:
 ├── config.yaml      # Your secrets config (git-ignored)
 ├── config.example   # Template
 ├── Vagrantfile      # VM definition
+├── build-box.sh     # Package VM into reusable box
+├── deploy.sh        # Fast deploy from pre-built box
 ├── scripts/
-│   ├── provision.sh # Main setup
+│   ├── provision.sh # Base system setup
+│   ├── network.sh   # Firewall config
 │   └── secrets.sh   # GCP fetch + encrypt
 └── README.md        # Quick start
 ```
@@ -76,19 +79,20 @@ secrets:
 ## Workflow
 
 ```bash
-# 1. Configure
-cp config.example config.yaml
-# Edit: add your GCP project and secret labels
+# FIRST TIME (slow, ~10 min)
+vagrant up           # Provision VM
+./build-box.sh       # Package into signing-vm.box
 
-# 2. Start VM
-vagrant up
-# Prompts: encryption password + GCP auth
+# SUBSEQUENT (fast, ~20 sec)
+./deploy.sh          # Start from pre-built box
 
-# 3. Use
-# Secrets available in /mnt/secrets (encrypted)
-# Browser wallets ready for import
+# INSIDE VM
+sudo /vagrant_config/scripts/secrets.sh
+# → Enter encryption password
+# → Authenticate with GCP
+# → Secrets at /mnt/secrets/
 
-# 4. Destroy
-vagrant destroy  # All secrets wiped
+# CLEANUP
+vagrant destroy      # Wipes all secrets
 ```
 
