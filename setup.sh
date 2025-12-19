@@ -5,7 +5,7 @@ set -e
 echo "==> Detecting platform"
 
 # Platform detection
-if [[ "$OSTYPE" == "darwin"* ]]; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
     IS_ARM=$([[ $(uname -m) == "arm64" ]] && echo 1 || echo 0)
     
     # Install Homebrew if missing
@@ -25,7 +25,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     if [[ $IS_ARM -eq 1 ]]; then
         command -v qemu-system-aarch64 &>/dev/null || {
             echo "==> Installing QEMU"
-            brew install qemu
+                brew install qemu
         }
         vagrant plugin list | grep -q vagrant-qemu || {
             echo "==> Installing vagrant-qemu plugin"
@@ -45,5 +45,5 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
 fi
 
 echo "==> Setup complete"
-echo ""
+    echo ""
 echo "Next: cp config.example config.yaml && vagrant up"

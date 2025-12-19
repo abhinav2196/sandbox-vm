@@ -8,6 +8,12 @@ Isolated VM for blockchain signing. Secrets fetched from GCP into encrypted RAM 
 ./setup.sh
 ```
 
+Alternative:
+
+```bash
+make setup
+```
+
 Edit `config.yaml`:
 ```yaml
 gui_enabled: true
