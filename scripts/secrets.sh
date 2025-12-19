@@ -18,7 +18,7 @@ if [[ -f "${1:-}" ]]; then
 fi
 
 MOUNT="/mnt/secrets"
-SIZE_MB=128
+SIZE_MB=512
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
