@@ -26,6 +26,14 @@ die() { echo -e "${RED}Error: $1${NC}" >&2; exit 1; }
 info() { echo -e "${GREEN}==> $1${NC}"; }
 warn() { echo -e "${YELLOW}==> $1${NC}"; }
 
+# Make sure gcloud credentials never persist outside the encrypted mount.
+# gcloud stores tokens under $CLOUDSDK_CONFIG; we point it into $MOUNT after mount.
+gcloud_in_mount() {
+  export CLOUDSDK_CONFIG="$MOUNT/gcloud"
+  mkdir -p "$CLOUDSDK_CONFIG"
+  chmod 700 "$CLOUDSDK_CONFIG"
+}
+
 # Check config exists
 [[ -f "$CONFIG" ]] || die "Config not found: $CONFIG"
 
@@ -49,6 +57,7 @@ create_encrypted_volume() {
     read -s ENC_PASS2
     echo
     [[ "$ENC_PASS" == "$ENC_PASS2" ]] || die "Passwords don't match"
+    [[ ${#ENC_PASS} -ge 8 ]] || die "Password must be at least 8 characters"
     
     # Create RAM-backed encrypted volume
     BACKING="/dev/shm/secrets-backing"
@@ -71,6 +80,7 @@ create_encrypted_volume() {
 
 # Authenticate with GCP
 gcp_auth() {
+    gcloud_in_mount
     if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
         warn "GCP authentication required"
         gcloud auth login --no-launch-browser
@@ -86,14 +96,20 @@ fetch_secrets() {
         [[ -z "$project" || -z "$label" ]] && continue
         
         info "Fetching: $project/$label"
-        SECRET_PATH="projects/$project/secrets/$label/versions/latest"
-        
-        if DATA=$(gcloud secrets versions access "$SECRET_PATH" 2>/dev/null); then
+        # Use explicit flags (less error-prone than resource-name parsing)
+        if DATA=$(gcloud secrets versions access latest --secret="$label" --project="$project" 2>/dev/null); then
             echo "$DATA" > "$MOUNT/$label.json"
             chmod 600 "$MOUNT/$label.json"
+            chown security:security "$MOUNT/$label.json" 2>/dev/null || true
             info "Saved: $MOUNT/$label.json"
         else
             warn "Failed to fetch: $label"
+            echo ""
+            echo "Debug (run inside VM):"
+            echo "  gcloud secrets versions access latest --secret=\"$label\" --project=\"$project\""
+            echo ""
+            # Show real error for faster diagnosis
+            gcloud secrets versions access latest --secret="$label" --project="$project" 2>&1 | tail -20 || true
         fi
     done < <(parse_secrets)
 }
@@ -110,12 +126,23 @@ cleanup() {
 # Main
 case "$CMD" in
   fetch)
+    # Stronger isolation: put the decrypted mount into a private mount namespace,
+    # so other shells in the VM cannot see /mnt/secrets even while it's mounted.
+    if [[ "${SECRETS_UNSHARED:-}" != "1" ]] && command -v unshare >/dev/null 2>&1; then
+      exec unshare -m --propagation private env SECRETS_UNSHARED=1 "$0" fetch "$CONFIG"
+    fi
+
     create_encrypted_volume
     fetch_secrets
     echo -e "\n${GREEN}Secrets ready at $MOUNT${NC}"
-    echo "Type 'exit' or Ctrl+D to destroy secrets"
     trap cleanup EXIT
-    su - security -c "cd $MOUNT && bash"
+    if [[ -t 0 ]]; then
+      echo "Type 'exit' or Ctrl+D to destroy secrets"
+      su - security -c "cd $MOUNT && bash"
+    else
+      echo "Non-interactive shell detected; not spawning an interactive session."
+      echo "To browse files: vagrant ssh  (then: sudo ls -la $MOUNT)"
+    fi
     ;;
   cleanup)
     cleanup

@@ -58,8 +58,11 @@ secrets:
 
 1. **No host access** - shared folders/clipboard disabled
 2. **Network isolation** - outbound DNS/HTTP/HTTPS only (or fully offline)
-3. **Encrypted RAM volume** - password generated at runtime, never stored
-4. **Auto-destroy** - secrets wiped on VM shutdown
+3. **Encrypted RAM volume** - password entered at runtime, never stored
+4. **gcloud tokens never persist** - `CLOUDSDK_CONFIG` is set inside `/mnt/secrets` so OAuth tokens are destroyed with the mount
+5. **gcloud is root-only** - normal VM users cannot run `gcloud` directly
+6. **Private mount namespace** - decrypted `/mnt/secrets` is only visible inside the secrets session
+7. **Auto-destroy** - secrets wiped when the secrets session exits
 
 ## Files
 

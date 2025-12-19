@@ -1,56 +1,58 @@
 # Secure Signing VM
 
-Isolated VM for blockchain signing with GCP secrets injection.
+Isolated VM for blockchain signing. Secrets fetched from GCP into encrypted RAM — destroyed on exit.
 
-## Quick Start
+## Setup (once)
 
 ```bash
-# 1. Setup
 ./setup.sh
-cp config.example config.yaml  # edit with your GCP project
-
-# 2. First run (slow - builds image)
-vagrant up
-
-# 3. Package for fast deploys
-./build-box.sh
-
-# 4. Fast deploys (seconds)
-./deploy.sh
 ```
 
-## Fast Deploy Workflow
-
+Edit `config.yaml`:
+```yaml
+gui_enabled: true
+secrets:
+  - label: your-secret-name
+    project: your-gcp-project
 ```
-Build once:     vagrant up → ./build-box.sh → signing-vm.box (5-10 min)
-Deploy fast:    ./deploy.sh → VM ready (10-20 sec)
-```
 
-## Inside VM
+## Usage
 
 ```bash
-vagrant ssh
-sudo /vagrant_config/scripts/secrets.sh  # fetch GCP secrets
+# Start VM (~7 min first time, ~30 sec after build-box)
+VAGRANT_SSH_PORT=50223 vagrant up
+
+# Connect GUI
+vagrant ssh -- -L 5901:localhost:5901   # keep open
+open vnc://localhost:5901                # pw: changeme
+
+# Inside VM: fetch secrets
+su - security
+sudo /usr/local/sbin/secrets.sh /vagrant_config/config.yaml
+# → enter encryption password
+# → complete gcloud auth
+# → secrets available at /mnt/secrets/
+
+# Exit destroys secrets
+exit
 ```
 
-## Config
+## Fast Deploys
 
-```yaml
-network_enabled: true  # false = offline mode
-
-secrets:
-  - label: wallet-seed
-    project: my-gcp-project
+```bash
+./build-box.sh    # save provisioned state (once)
+./deploy.sh       # start in ~30 sec (every time)
 ```
 
-## Commands
+## Config Options
 
-| Command | Action |
-|---------|--------|
-| `./deploy.sh` | Fast start from pre-built box |
-| `./cleanup.sh vm` | Destroy VM (keep box) |
-| `./cleanup.sh box` | Remove pre-built box |
-| `./cleanup.sh all` | Destroy VM + remove box |
-| `vagrant halt` | Stop VM (keep state) |
+| Option | Values | Description |
+|--------|--------|-------------|
+| `gui_enabled` | true/false | Desktop + Firefox via VNC |
+| `network_enabled` | true/false | Internet access |
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for design.
+## Security
+
+- Secrets live in LUKS-encrypted RAM volume
+- gcloud blocked for normal user
+- No credentials persist after exit

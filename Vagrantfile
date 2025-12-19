@@ -7,6 +7,7 @@ Vagrant.configure("2") do |config|
   cfg = File.exist?(cfg_file) ? YAML.load_file(cfg_file) : {}
   
   NETWORK_ENABLED = cfg.fetch('network_enabled', true)
+  GUI_ENABLED = cfg.fetch('gui_enabled', false)
   VM_MEMORY = "2048"
   VM_CPUS = 2
   
@@ -52,10 +53,15 @@ Vagrant.configure("2") do |config|
 
   # Provisioning (skipped if using pre-built box)
   unless use_prebuilt
-    config.vm.provision "shell", path: "scripts/provision.sh"
+    gui_flag = GUI_ENABLED ? "gui" : "nogui"
+    config.vm.provision "shell", path: "scripts/provision.sh", args: [gui_flag]
     network_action = NETWORK_ENABLED ? "enable" : "disable"
     config.vm.provision "shell", inline: "bash /vagrant_config/scripts/network.sh #{network_action}"
+    # Hardening runs last (after all provisioners that need sudo)
+    config.vm.provision "shell", inline: "bash /usr/local/sbin/harden.sh"
   end
+  
+  vnc_msg = GUI_ENABLED ? "\n    VNC:            vagrant ssh -- -L 5901:localhost:5901\n                    Then: open vnc://localhost:5901 (pw: changeme)" : ""
   
   config.vm.post_up_message = <<~MSG
     ══════════════════════════════════════════
@@ -64,9 +70,10 @@ Vagrant.configure("2") do |config|
     
     Login: security / changeme
     Network: #{NETWORK_ENABLED ? 'Enabled' : 'Disabled'}
+    GUI: #{GUI_ENABLED ? 'Enabled (VNC on :5901)' : 'Disabled'}
     SSH Port: #{ssh_port} (host) → 22 (guest)
     
-    Fetch secrets:  sudo /vagrant_config/scripts/secrets.sh
+    Fetch secrets:  sudo /vagrant_config/scripts/secrets.sh#{vnc_msg}
     SSH:            vagrant ssh
     Stop:           vagrant halt
     Destroy:        vagrant destroy
