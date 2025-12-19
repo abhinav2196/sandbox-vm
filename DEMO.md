@@ -60,7 +60,40 @@ vagrant ssh -c "ls -la /mnt/secrets"
 vagrant ssh -c "ls -la /mnt/secrets/*.json || echo 'OK: no secret files visible here'"
 ```
 
-### 6) Browser workflow (seed + extension data inside encrypted mount)
+### 6) Ethereum Transaction Signing Demo
+
+Inside the secrets session, sign a transaction:
+
+```bash
+# Run interactive demo (creates test key if none exists)
+eth-sign --demo
+```
+
+**With your own key** (store in encrypted mount first):
+
+```bash
+# Create key file in encrypted mount
+cat > /mnt/secrets/eth-signing-key.json << 'EOF'
+{
+  "private_key": "0xYOUR_PRIVATE_KEY_HERE"
+}
+EOF
+chmod 600 /mnt/secrets/eth-signing-key.json
+
+# Sign a transfer (dry run - doesn't broadcast)
+eth-sign --to 0xRECIPIENT_ADDRESS --value 0.01 --network sepolia --dry-run
+
+# Sign and broadcast (will prompt for confirmation)
+eth-sign --to 0xRECIPIENT_ADDRESS --value 0.01 --network sepolia
+```
+
+**Key points demonstrated:**
+- Private key loaded from encrypted RAM-backed volume
+- Key never written to disk
+- Transaction signed inside isolated environment
+- Signed raw transaction can be broadcast externally
+
+### 7) Browser workflow (seed + extension data inside encrypted mount)
 
 Inside the secrets session:
 
@@ -68,7 +101,7 @@ Inside the secrets session:
 secure-browser
 ```
 
-### 7) Cleanup proof
+### 8) Cleanup proof
 
 Inside the secrets session:
 
@@ -80,6 +113,7 @@ Then:
 
 ```bash
 vagrant ssh -c "mount | grep /mnt/secrets || echo 'OK: not mounted after exit'"
+vagrant ssh -c "cat /mnt/secrets/eth-signing-key.json 2>&1 || echo 'OK: key file destroyed'"
 ```
 
 ## After demo

@@ -19,9 +19,20 @@ fi
 
 echo "    Provider: $PROVIDER"
 
+# Reset vagrant SSH keys to insecure default (allows vagrant to connect)
+echo "==> Preparing box for reuse..."
+vagrant ssh -c '
+  # Reset SSH to vagrant insecure key
+  mkdir -p ~/.ssh
+  curl -fsSL https://raw.githubusercontent.com/hashicorp/vagrant/main/keys/vagrant.pub > ~/.ssh/authorized_keys
+  chmod 600 ~/.ssh/authorized_keys
+  # Clean fstab vagrant entries (prevents sed errors on deploy)
+  sudo sed -i "/#VAGRANT-BEGIN/,/#VAGRANT-END/d" /etc/fstab 2>/dev/null || true
+' 2>/dev/null || true
+
 # Stop VM
 echo "==> Stopping VM..."
-vagrant halt 2>/dev/null || true
+vagrant halt
 
 if [[ "$PROVIDER" == "qemu" ]]; then
     # QEMU: manually package the disk image
@@ -35,12 +46,10 @@ if [[ "$PROVIDER" == "qemu" ]]; then
     echo "==> Copying disk image..."
     cp "$DISK" "$BOX_DIR/box.img"
     
-    # Create metadata (qemu plugin uses libvirt provider name)
+    # Create metadata (qemu plugin uses libvirt provider internally)
     cat > "$BOX_DIR/metadata.json" << 'EOF'
 {
-    "provider": "libvirt",
-    "format": "qcow2",
-    "virtual_size": 20
+    "provider": "libvirt"
 }
 EOF
     
@@ -65,6 +74,10 @@ fi
 # Cleanup temp dir
 rm -rf "$BOX_DIR"
 
+# Remove old box version
+echo "==> Removing old box (if exists)..."
+vagrant box remove -f signing-vm-base 2>/dev/null || true
+
 # Add to vagrant
 echo "==> Adding box to Vagrant..."
 vagrant box add --force signing-vm-base "$BOX_NAME"
@@ -73,4 +86,4 @@ echo ""
 echo "==> Done!"
 echo "    Box file: $BOX_NAME ($(du -h "$BOX_NAME" | cut -f1))"
 echo ""
-echo "Fast deploy: ./deploy.sh"
+echo "Fast deploy: make deploy"

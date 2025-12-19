@@ -1,8 +1,8 @@
 SHELL := /bin/bash
 .PHONY: setup build deploy vm cleanup vm-clean box-clean help all
 
-# read ssh_port from config if present
-CONFIG_SSH_PORT := $(shell awk -F: '/^\s*ssh_port/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' config.yaml)
+# read ssh_port from config (macOS awk compatible)
+CONFIG_SSH_PORT := $(shell awk -F: '/^[[:space:]]*ssh_port/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' config.yaml 2>/dev/null)
 VAGRANT_SSH_PORT ?= $(if $(CONFIG_SSH_PORT),$(CONFIG_SSH_PORT),50223)
 
 help:

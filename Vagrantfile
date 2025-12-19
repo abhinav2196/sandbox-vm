@@ -9,8 +9,8 @@ Vagrant.configure("2") do |config|
   NETWORK_ENABLED = cfg.fetch('network_enabled', true)
   GUI_ENABLED = cfg.fetch('gui_enabled', false)
   DEFAULT_SSH_PORT = cfg.fetch('ssh_port', 50223)
-  VM_MEMORY = "2048"
-  VM_CPUS = 2
+  VM_MEMORY = cfg.fetch('vm_memory', 6144).to_s  # 6GB RAM
+  VM_CPUS = cfg.fetch('vm_cpus', 6)              # 6 cores
   
   # Platform detection
   is_arm = RUBY_PLATFORM.include?('arm64') || `uname -m`.strip == 'arm64'
@@ -35,10 +35,12 @@ Vagrant.configure("2") do |config|
   
   config.vm.hostname = "signing-vm"
   
-  # Synced folders
+  # Synced folders (disabled for pre-built boxes - scripts already baked in)
   config.vm.synced_folder ".", "/vagrant", disabled: true
-  config.vm.synced_folder ".", "/vagrant_config", type: "rsync",
-    rsync__include: ["config.yaml", "scripts/"]
+  unless use_prebuilt
+    config.vm.synced_folder ".", "/vagrant_config", type: "rsync",
+      rsync__include: ["config.yaml", "scripts/"]
+  end
   
   # Provider configs
   config.vm.provider "virtualbox" do |vb|

@@ -126,11 +126,11 @@ cleanup() {
 # Main
 case "$CMD" in
   fetch)
-    # Stronger isolation: put the decrypted mount into a private mount namespace,
-    # so other shells in the VM cannot see /mnt/secrets even while it's mounted.
-    if [[ "${SECRETS_UNSHARED:-}" != "1" ]] && command -v unshare >/dev/null 2>&1; then
-      exec unshare -m --propagation private env SECRETS_UNSHARED=1 "$0" fetch "$CONFIG"
-    fi
+    # Mount namespace isolation (disabled for demo - enable for production)
+    # When enabled, other shells in the VM cannot see /mnt/secrets even while mounted.
+    # if [[ "${SECRETS_UNSHARED:-}" != "1" ]] && command -v unshare >/dev/null 2>&1; then
+    #   exec unshare -m --propagation private env SECRETS_UNSHARED=1 "$0" fetch "$CONFIG"
+    # fi
 
     create_encrypted_volume
     fetch_secrets

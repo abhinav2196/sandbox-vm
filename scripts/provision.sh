@@ -26,7 +26,19 @@ apt-get update || apt-get -o Acquire::Check-Valid-Until=false update
 echo "==> Installing base packages..."
 apt-get install -y \
     git gnupg2 curl wget vim jq \
-    cryptsetup pass openssh-client
+    cryptsetup pass openssh-client \
+    python3 python3-pip python3-venv
+
+echo "==> Installing Python web3 for Ethereum signing..."
+pip3 install --break-system-packages web3 eth-account 2>/dev/null || pip3 install web3 eth-account
+
+echo "==> Creating user"
+if ! id security &>/dev/null; then
+    useradd -m -s /bin/bash security
+    echo "security:changeme" | chpasswd
+    mkdir -p /home/security/{Desktop,work}
+    chown -R security:security /home/security
+fi
 
 if [[ "$GUI_MODE" == "gui" ]]; then
     echo "==> Disabling snap (slow)..."
@@ -47,7 +59,7 @@ EOF
     apt-get update
     
     echo "==> Installing GUI packages (~5-7 min)..."
-    apt-get install -y xfce4 lightdm firefox tigervnc-standalone-server
+    apt-get install -y xfce4 lightdm firefox tigervnc-standalone-server autocutsel
     
     # Pre-configure VNC for both vagrant and security users
     for user in vagrant security; do
@@ -57,6 +69,8 @@ EOF
 #!/bin/sh
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
+autocutsel -fork
+autocutsel -selection PRIMARY -fork
 exec startxfce4
 XEOF
         chmod +x "$home_dir/.vnc/xstartup"
@@ -119,14 +133,6 @@ if command -v gcloud &>/dev/null; then
     done
 fi
 
-echo "==> Creating user"
-if ! id security &>/dev/null; then
-    useradd -m -s /bin/bash security
-    echo "security:changeme" | chpasswd
-    mkdir -p /home/security/{Desktop,work}
-    chown -R security:security /home/security
-fi
-
 echo "==> Installing helper scripts into /usr/local (root-owned)"
 install -d -m 755 /usr/local/sbin /usr/local/bin
 if [[ -d /vagrant_config/scripts ]]; then
@@ -134,6 +140,7 @@ if [[ -d /vagrant_config/scripts ]]; then
     install -m 755 /vagrant_config/scripts/secure-browser.sh /usr/local/bin/secure-browser
     install -m 755 /vagrant_config/scripts/harden.sh /usr/local/sbin/harden.sh 2>/dev/null || true
     install -m 755 /vagrant_config/scripts/network.sh /usr/local/sbin/network.sh 2>/dev/null || true
+    install -m 755 /vagrant_config/scripts/eth-sign.py /usr/local/bin/eth-sign 2>/dev/null || true
 fi
 
 if [[ "$GUI_MODE" == "gui" ]]; then
