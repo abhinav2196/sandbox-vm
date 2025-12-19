@@ -2,6 +2,7 @@
 # Copy to config.yaml and edit
 
 network_enabled: true
+ssh_port: 50223
 
 secrets:
   - label: wallet-seed

@@ -8,13 +8,19 @@ Vagrant.configure("2") do |config|
   
   NETWORK_ENABLED = cfg.fetch('network_enabled', true)
   GUI_ENABLED = cfg.fetch('gui_enabled', false)
+  DEFAULT_SSH_PORT = cfg.fetch('ssh_port', 50223)
   VM_MEMORY = "2048"
   VM_CPUS = 2
   
   # Platform detection
   is_arm = RUBY_PLATFORM.include?('arm64') || `uname -m`.strip == 'arm64'
   provider = is_arm ? 'qemu' : 'virtualbox'
-  ssh_port = (ENV['VAGRANT_SSH_PORT'] && !ENV['VAGRANT_SSH_PORT'].empty?) ? ENV['VAGRANT_SSH_PORT'].to_i : 50222
+  env_ssh_port = ENV['VAGRANT_SSH_PORT']
+  ssh_port = if env_ssh_port && !env_ssh_port.empty?
+               env_ssh_port.to_i
+             else
+               DEFAULT_SSH_PORT
+             end
   
   # Box selection: use pre-built if available (via env var), else base box
   use_prebuilt = ENV['USE_PREBUILT'] == '1'

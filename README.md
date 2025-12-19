@@ -26,7 +26,8 @@ secrets:
 
 ```bash
 # Start VM (~7 min first time, ~30 sec after build-box)
-VAGRANT_SSH_PORT=50223 vagrant up
+# Set `VAGRANT_SSH_PORT` to avoid host collisions if needed
+VAGRANT_SSH_PORT=${VAGRANT_SSH_PORT:-50223} vagrant up
 
 # Connect GUI
 vagrant ssh -- -L 5901:localhost:5901   # keep open

@@ -1,6 +1,10 @@
 SHELL := /bin/bash
 .PHONY: setup build deploy vm cleanup vm-clean box-clean help all
 
+# read ssh_port from config if present
+CONFIG_SSH_PORT := $(shell awk -F: '/^\s*ssh_port/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' config.yaml)
+VAGRANT_SSH_PORT ?= $(if $(CONFIG_SSH_PORT),$(CONFIG_SSH_PORT),50223)
+
 help:
 	@printf "Targets:\n"
 	@printf "  setup        Install host requirements (Vagrant, provider)\n"
@@ -23,7 +27,7 @@ deploy:
 	./deploy.sh
 
 vm:
-	VAGRANT_SSH_PORT=50223 vagrant up
+	@VAGRANT_SSH_PORT=$(VAGRANT_SSH_PORT) vagrant up
 
 cleanup:
 	./cleanup.sh all

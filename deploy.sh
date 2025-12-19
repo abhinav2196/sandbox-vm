@@ -3,7 +3,8 @@
 set -e
 
 BOX_FILE="signing-vm.box"
-SSH_PORT="${VAGRANT_SSH_PORT:-50222}"
+CONFIG_SSH_PORT="$(awk -F: '/^\s*ssh_port/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' config.yaml 2>/dev/null)"
+SSH_PORT="${VAGRANT_SSH_PORT:-${CONFIG_SSH_PORT:-50223}}"
 
 # Check if box exists in vagrant
 if ! vagrant box list 2>/dev/null | grep -q "signing-vm-base"; then
