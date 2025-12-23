@@ -117,3 +117,9 @@ Connect to `localhost:5901` (password: `changeme`). Clipboard sync works automat
 - Secrets live in LUKS-encrypted RAM volume
 - gcloud blocked for normal user
 - No credentials persist after exit
+
+## Future Enhancements
+
+- **Systemd cleanup on boot**: Add a systemd service to automatically clean up any stale encrypted volumes when the VM starts, ensuring a guaranteed clean slate without relying on user behavior (typing `exit`)
+- **Timeout-based auto-cleanup**: Auto-terminate secrets session after N minutes of inactivity
+- **Fully ephemeral VM**: Option to destroy the entire VM after each signing session

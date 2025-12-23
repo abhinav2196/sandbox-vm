@@ -43,11 +43,39 @@ parse_secrets() {
     paste - - | sed 's/.*label:\s*\(\S*\).*project:\s*\(\S*\).*/\2:\1/'
 }
 
+# Clean up any existing encrypted volume resources
+cleanup_existing() {
+    # Unmount if mounted
+    if mountpoint -q "$MOUNT" 2>/dev/null; then
+        warn "Unmounting existing mount at $MOUNT"
+        umount "$MOUNT" 2>/dev/null || umount -l "$MOUNT" 2>/dev/null || true
+    fi
+    
+    # Close device mapper if open
+    if [[ -e /dev/mapper/secrets ]]; then
+        warn "Closing existing device mapper 'secrets'"
+        cryptsetup close secrets 2>/dev/null || true
+    fi
+    
+    # Detach any loop devices using the backing file
+    BACKING="/dev/shm/secrets-backing"
+    if [[ -f "$BACKING" ]]; then
+        for loop in $(losetup -j "$BACKING" 2>/dev/null | cut -d: -f1); do
+            warn "Detaching existing loop device $loop"
+            losetup -d "$loop" 2>/dev/null || true
+        done
+        rm -f "$BACKING"
+    fi
+}
+
 # Create encrypted volume
 create_encrypted_volume() {
     info "Creating encrypted volume"
     
     [[ $EUID -eq 0 ]] || die "Must run as root"
+    
+    # Clean up any leftover resources from previous runs
+    cleanup_existing
     
     # Prompt for password (never stored)
     echo -e "${YELLOW}Enter encryption password (will NOT be stored):${NC}"
@@ -117,9 +145,26 @@ fetch_secrets() {
 # Cleanup on exit
 cleanup() {
     info "Cleaning up encrypted volume"
-    umount "$MOUNT" 2>/dev/null || true
-    cryptsetup close secrets 2>/dev/null || true
-    rm -f /dev/shm/secrets-backing
+    
+    # Unmount
+    if mountpoint -q "$MOUNT" 2>/dev/null; then
+        umount "$MOUNT" 2>/dev/null || umount -l "$MOUNT" 2>/dev/null || true
+    fi
+    
+    # Close device mapper
+    if [[ -e /dev/mapper/secrets ]]; then
+        cryptsetup close secrets 2>/dev/null || true
+    fi
+    
+    # Detach loop devices and remove backing file
+    BACKING="/dev/shm/secrets-backing"
+    if [[ -f "$BACKING" ]]; then
+        for loop in $(losetup -j "$BACKING" 2>/dev/null | cut -d: -f1); do
+            losetup -d "$loop" 2>/dev/null || true
+        done
+        rm -f "$BACKING"
+    fi
+    
     info "Secrets destroyed"
 }
 
