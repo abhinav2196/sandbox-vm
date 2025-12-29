@@ -69,6 +69,7 @@ EOF
 #!/bin/sh
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
+xhost +local:
 autocutsel -fork
 autocutsel -selection PRIMARY -fork
 exec startxfce4
