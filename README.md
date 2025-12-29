@@ -2,124 +2,116 @@
 
 Isolated VM for blockchain signing. Secrets fetched from GCP into encrypted RAM — destroyed on exit.
 
-## Setup (once)
+## Quick Start
 
 ```bash
+# 1. Install prerequisites (once)
 ./setup.sh
-```
 
-Alternative:
+# 2. Configure
+cp config.example config.yaml
+# Edit config.yaml with your GCP project + secret labels
 
-```bash
-make setup
-```
+# 3. Start VM (~7 min first time)
+vagrant up
 
-Edit `config.yaml`:
-```yaml
-gui_enabled: true
-secrets:
-  - label: your-secret-name
-    project: your-gcp-project
-```
-
-## Usage
-
-```bash
-# Start VM (~7 min first time, ~30 sec after build-box)
-# Set `VAGRANT_SSH_PORT` to avoid host collisions if needed
-VAGRANT_SSH_PORT=${VAGRANT_SSH_PORT:-50223} vagrant up
-
-# Connect GUI (SSH tunnel + VNC)
+# 4. Connect via VNC
 vagrant ssh -- -L 5901:localhost:5901   # keep open
 open vnc://localhost:5901                # pw: changeme
 
-# Better clipboard support: use TigerVNC instead of macOS Screen Sharing
-brew install --cask tigervnc-viewer
-open "/Applications/TigerVNC Viewer 1.15.0.app"
-# → Connect to: localhost:5901 (pw: changeme)
-# → Copy/paste works: Cmd+C on Mac ↔ Ctrl+Shift+V in VM
-
-# Inside VM: fetch secrets
+# 5. Inside VM: fetch secrets
 su - security
 sudo /usr/local/sbin/secrets.sh /vagrant_config/config.yaml
 # → enter encryption password
 # → complete gcloud auth
 # → secrets available at /mnt/secrets/
 
-# Run Firefox with ephemeral profile (destroyed on exit)
-mkdir -p /mnt/secrets/firefox-profile
-DISPLAY=:1 firefox --profile /mnt/secrets/firefox-profile --no-remote &
+# 6. Use browser with ephemeral profile
+secure-browser &
 # → Install MetaMask, import keys, sign transactions
-# → All browser data lives in encrypted RAM
 
-# Exit destroys secrets + browser data
+# 7. Exit destroys everything
 exit
 ```
 
 ## Fast Deploys
 
 ```bash
-./build-box.sh    # save provisioned state (once)
+./build-box.sh    # package provisioned VM (once)
 ./deploy.sh       # start in ~30 sec (every time)
 ```
 
-## Config Options
+## Config
 
-| Option | Values | Description |
-|--------|--------|-------------|
-| `gui_enabled` | true/false | Desktop + Firefox via VNC |
-| `network_enabled` | true/false | Internet access |
+```yaml
+# config.yaml
+network_enabled: true
+gui_enabled: true
+vm_memory: 6144
+vm_cpus: 6
+
+secrets:
+  - label: wallet-seed
+    project: my-gcp-project
+```
+
+| Option | Description |
+|--------|-------------|
+| `gui_enabled` | Desktop + Firefox via VNC |
+| `network_enabled` | Internet access (DNS/HTTP/HTTPS only) |
+| `vm_memory` | RAM in MB |
+| `vm_cpus` | CPU cores |
+
+## Security Model
+
+1. **Encrypted RAM volume** — secrets stored in LUKS-encrypted tmpfs at `/mnt/secrets`
+2. **Mount namespace isolation** — other VM sessions cannot see decrypted secrets
+3. **gcloud locked to root** — normal users cannot run `gcloud` directly
+4. **Auto-cleanup** — volume destroyed when secrets session exits
+5. **No credential persistence** — OAuth tokens live only in encrypted mount
+
+## Architecture
+
+```
+Host
+ └── Vagrant VM (Ubuntu + XFCE)
+      └── /mnt/secrets/ (encrypted RAM)
+           ├── *.json (GCP secrets)
+           ├── gcloud/ (OAuth tokens)
+           └── firefox-profile/ (wallet data)
+```
+
+## Files
+
+```
+├── config.yaml         # Your config (git-ignored)
+├── Vagrantfile         # VM definition
+├── scripts/
+│   ├── provision.sh    # System setup
+│   ├── harden.sh       # Security lockdown (auto-runs)
+│   ├── secrets.sh      # Encrypted volume + GCP fetch
+│   ├── secure-browser.sh
+│   └── eth-sign.py     # Ethereum signing
+├── build-box.sh        # Package VM
+├── deploy.sh           # Fast start
+└── cleanup.sh          # Destroy VM/box
+```
 
 ## Troubleshooting
 
-### Auth failed / Malformed auth code
-
-If gcloud authentication fails (e.g., "Malformed auth code"), reset and retry:
-
+**Auth failed / Malformed auth code**
 ```bash
-# Cleanup the failed session
 sudo /usr/local/sbin/secrets.sh cleanup
-
-# Start fresh
 sudo /usr/local/sbin/secrets.sh /vagrant_config/config.yaml
 ```
 
-**Tips for pasting the auth code:**
-- Triple-click to select the entire code in your browser
-- Use **Ctrl+Shift+V** to paste in the VM terminal
-- Paste within 30 seconds (codes expire quickly)
-
-### Firefox: "cannot open display" or "authorization required"
-
-If Firefox fails to open from the secrets session, allow X connections from local users.
-
-Run in a **separate terminal** (not in the secrets session):
-
+**Firefox won't open**
 ```bash
+# In separate terminal:
 vagrant ssh -c "DISPLAY=:1 xhost +local:"
 ```
 
-Then retry Firefox in your secrets session.
-
-### Clipboard not working
-
-The macOS built-in VNC client has limited clipboard support. Use TigerVNC instead:
-
+**Clipboard not working** — Use TigerVNC instead of macOS Screen Sharing:
 ```bash
 brew install --cask tigervnc-viewer
-open "/Applications/TigerVNC Viewer 1.15.0.app"
 ```
-
-Connect to `localhost:5901` (password: `changeme`). Clipboard sync works automatically.
-
-## Security
-
-- Secrets live in LUKS-encrypted RAM volume
-- gcloud blocked for normal user
-- No credentials persist after exit
-
-## Future Enhancements
-
-- **Systemd cleanup on boot**: Add a systemd service to automatically clean up any stale encrypted volumes when the VM starts, ensuring a guaranteed clean slate without relying on user behavior (typing `exit`)
-- **Timeout-based auto-cleanup**: Auto-terminate secrets session after N minutes of inactivity
-- **Fully ephemeral VM**: Option to destroy the entire VM after each signing session

@@ -37,10 +37,12 @@ gcloud_in_mount() {
 # Check config exists
 [[ -f "$CONFIG" ]] || die "Config not found: $CONFIG"
 
-# Parse secrets from YAML (simple parser - no deps)
+# Parse secrets from YAML (awk-based, handles whitespace/ordering)
 parse_secrets() {
-    grep -A2 "^\s*-\s*label:" "$CONFIG" | grep -E "label:|project:" | \
-    paste - - | sed 's/.*label:\s*\(\S*\).*project:\s*\(\S*\).*/\2:\1/'
+    awk '
+    /^[[:space:]]*-[[:space:]]*label:/ { label = $2 }
+    /^[[:space:]]*project:/ { if (label) print $2 ":" label; label = "" }
+    ' "$CONFIG"
 }
 
 # Clean up any existing encrypted volume resources
@@ -171,11 +173,10 @@ cleanup() {
 # Main
 case "$CMD" in
   fetch)
-    # Mount namespace isolation (disabled for demo - enable for production)
-    # When enabled, other shells in the VM cannot see /mnt/secrets even while mounted.
-    # if [[ "${SECRETS_UNSHARED:-}" != "1" ]] && command -v unshare >/dev/null 2>&1; then
-    #   exec unshare -m --propagation private env SECRETS_UNSHARED=1 "$0" fetch "$CONFIG"
-    # fi
+    # Mount namespace isolation: other VM sessions cannot see /mnt/secrets
+    if [[ "${SECRETS_UNSHARED:-}" != "1" ]] && command -v unshare >/dev/null 2>&1; then
+      exec unshare -m --propagation private env SECRETS_UNSHARED=1 "$0" fetch "$CONFIG"
+    fi
 
     create_encrypted_volume
     fetch_secrets

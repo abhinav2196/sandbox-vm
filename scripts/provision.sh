@@ -122,17 +122,6 @@ if ! command -v gcloud &>/dev/null; then
     apt-get update -qq && apt-get install -y -qq google-cloud-cli
 fi
 
-echo "==> Locking down gcloud (root-only; credentials stored only in encrypted mount)"
-if command -v gcloud &>/dev/null; then
-    groupadd -f gcloud >/dev/null 2>&1 || true
-    for bin in /usr/bin/gcloud /usr/bin/gsutil /usr/bin/bq; do
-        if [[ -f "$bin" ]]; then
-            chown root:gcloud "$bin" || true
-            chmod 750 "$bin" || true
-        fi
-    done
-fi
-
 echo "==> Installing helper scripts into /usr/local (root-owned)"
 install -d -m 755 /usr/local/sbin /usr/local/bin
 if [[ -d /vagrant_config/scripts ]]; then
@@ -156,15 +145,6 @@ echo "==> Disabling unnecessary services"
 for svc in snapd bluetooth cups avahi-daemon; do
     systemctl disable $svc 2>/dev/null || true
 done
-
-echo "==> Restricting sudo: allow only secrets session for security user"
-if command -v sudo >/dev/null 2>&1 && id security >/dev/null 2>&1; then
-    # Allow security to run ONLY the secrets wrapper (no shell, no arbitrary sudo)
-    cat > /etc/sudoers.d/security-secrets <<'EOF'
-security ALL=(root) NOPASSWD: /usr/local/sbin/secrets.sh
-EOF
-    chmod 440 /etc/sudoers.d/security-secrets
-fi
 
 echo "==> Done"
 # Note: harden.sh runs as separate final provisioner in Vagrantfile

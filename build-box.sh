@@ -53,11 +53,11 @@ if [[ "$PROVIDER" == "qemu" ]]; then
 }
 EOF
     
+    # Minimal Vagrantfile - actual values come from user's config.yaml
     cat > "$BOX_DIR/Vagrantfile" << 'EOF'
 Vagrant.configure("2") do |config|
   config.vm.provider "qemu" do |qe|
-    qe.memory = "2048"
-    qe.cpus = 2
+    qe.arch = "aarch64"
   end
 end
 EOF
