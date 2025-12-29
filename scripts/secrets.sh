@@ -37,12 +37,10 @@ gcloud_in_mount() {
 # Check config exists
 [[ -f "$CONFIG" ]] || die "Config not found: $CONFIG"
 
-# Parse secrets from YAML (awk-based, handles whitespace/ordering)
+# Parse secrets from YAML (project:label format)
 parse_secrets() {
-    awk '
-    /^[[:space:]]*-[[:space:]]*label:/ { label = $2 }
-    /^[[:space:]]*project:/ { if (label) print $2 ":" label; label = "" }
-    ' "$CONFIG"
+    grep -A2 "^\s*-\s*label:" "$CONFIG" | grep -E "label:|project:" | \
+    paste - - | sed 's/.*label:\s*\(\S*\).*project:\s*\(\S*\).*/\2:\1/'
 }
 
 # Clean up any existing encrypted volume resources
