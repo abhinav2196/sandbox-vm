@@ -123,14 +123,20 @@ if ! command -v gcloud &>/dev/null; then
     apt-get update -qq && apt-get install -y -qq google-cloud-cli
 fi
 
-echo "==> Installing helper scripts into /usr/local (root-owned)"
+echo "==> Setting up script access"
 install -d -m 755 /usr/local/sbin /usr/local/bin
+
+# Ensure /vagrant_config is writable by vagrant (enables 'vagrant rsync' after hardening)
+mkdir -p /vagrant_config
+chown vagrant:vagrant /vagrant_config
+
+# Symlink scripts so 'vagrant rsync' updates take effect immediately
 if [[ -d /vagrant_config/scripts ]]; then
-    install -m 755 /vagrant_config/scripts/secrets.sh /usr/local/sbin/secrets.sh
-    install -m 755 /vagrant_config/scripts/secure-browser.sh /usr/local/bin/secure-browser
-    install -m 755 /vagrant_config/scripts/harden.sh /usr/local/sbin/harden.sh 2>/dev/null || true
-    install -m 755 /vagrant_config/scripts/network.sh /usr/local/sbin/network.sh 2>/dev/null || true
-    install -m 755 /vagrant_config/scripts/eth-sign.py /usr/local/bin/eth-sign 2>/dev/null || true
+    ln -sf /vagrant_config/scripts/secrets.sh /usr/local/sbin/secrets.sh
+    ln -sf /vagrant_config/scripts/secure-browser.sh /usr/local/bin/secure-browser
+    ln -sf /vagrant_config/scripts/harden.sh /usr/local/sbin/harden.sh
+    ln -sf /vagrant_config/scripts/network.sh /usr/local/sbin/network.sh
+    ln -sf /vagrant_config/scripts/eth-sign.py /usr/local/bin/eth-sign
 fi
 
 if [[ "$GUI_MODE" == "gui" ]]; then

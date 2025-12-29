@@ -22,11 +22,11 @@ open vnc://localhost:5901                # pw: changeme
 # 5. Inside VM: fetch secrets
 su - security
 sudo /usr/local/sbin/secrets.sh /vagrant_config/config.yaml
-# → enter encryption password
 # → complete gcloud auth
 # → secrets available at /mnt/secrets/
 
 # 6. Use browser with ephemeral profile
+export DISPLAY=:1
 secure-browser &
 # → Install MetaMask, import keys, sign transactions
 
@@ -40,6 +40,14 @@ exit
 ./build-box.sh    # package provisioned VM (once)
 ./deploy.sh       # start in ~30 sec (every time)
 ```
+
+## Development
+
+After editing scripts, sync to running VM:
+```bash
+vagrant rsync
+```
+Changes take effect immediately (scripts are symlinked).
 
 ## Config
 

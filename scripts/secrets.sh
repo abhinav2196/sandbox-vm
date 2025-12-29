@@ -77,15 +77,8 @@ create_encrypted_volume() {
     # Clean up any leftover resources from previous runs
     cleanup_existing
     
-    # Prompt for password (never stored)
-    echo -e "${YELLOW}Enter encryption password (will NOT be stored):${NC}"
-    read -s ENC_PASS
-    echo
-    echo -e "${YELLOW}Confirm password:${NC}"
-    read -s ENC_PASS2
-    echo
-    [[ "$ENC_PASS" == "$ENC_PASS2" ]] || die "Passwords don't match"
-    [[ ${#ENC_PASS} -ge 8 ]] || die "Password must be at least 8 characters"
+    # Auto-generate random password (encryption without prompts)
+    ENC_PASS=$(head -c 32 /dev/urandom | base64)
     
     # Create RAM-backed encrypted volume
     BACKING="/dev/shm/secrets-backing"
@@ -102,7 +95,7 @@ create_encrypted_volume() {
     chmod 700 "$MOUNT"
     chown security:security "$MOUNT"
     
-    unset ENC_PASS ENC_PASS2
+    unset ENC_PASS
     info "Encrypted volume ready at $MOUNT"
 }
 
